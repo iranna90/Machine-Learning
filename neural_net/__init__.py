@@ -1,21 +1,46 @@
 import numpy as np
-import math
+import random
 
 
 class Network:
-    def __init__(self, neurons_per_layer, gradient_descent_steps=10, learning_rate=1, stochastic_batch_size=10):
+    def __init__(self, neurons_per_layer):
         self.layers = len(neurons_per_layer)
-        self.gradient_descent_steps = gradient_descent_steps
-        self.learning_rate = learning_rate
-        self.mini_batch = stochastic_batch_size
         self.biases = [np.random.randn(y, 1) for y in neurons_per_layer[1:]]
         weights_rows = neurons_per_layer[1:]
         weights_columns = neurons_per_layer[:-1]
         self.weights = [np.random.randn(rows, column) for rows, column in zip(weights_rows, weights_columns)]
 
-    def __stochastic_gradient_descent(self, mini_batch):
-        mini_batch_bias_gradients = [np.zeros(layer_biases.shape) for layer_biases in self.biases]
-        mini_batch_weights_gradients = [np.zeros(layer_weights.shape) for layer_weights in self.weights]
+    def SGD(self, training_data, epochs, mini_batch_size, eta, test_data=None):
+        """Train the neural network using mini-batch stochastic
+       gradient descent.  The ``training_data`` is a list of tuples
+       ``(x, y)`` representing the training inputs and the desired
+       outputs.  The other non-optional parameters are
+       self-explanatory.  If ``test_data`` is provided then the
+       network will be evaluated against the test data after each
+       epoch, and partial progress printed out.  This is useful for
+       tracking progress, but slows things down substantially."""
+        if test_data:
+            n_test = len(test_data)
+        n = len(training_data)
+        for j in xrange(epochs):
+            random.shuffle(training_data)
+            mini_batches = [
+                training_data[k:k + mini_batch_size]
+                for k in xrange(0, n, mini_batch_size)]
+            for mini_batch in mini_batches:
+                self.__stochastic_gradient_descent(mini_batch, eta)
+            if test_data:
+                print "Epoch {0}: {1} / {2}".format(j, self.evaluate(test_data), n_test)
+            else:
+                print "Epoch {0} complete".format(j)
+
+    def __stochastic_gradient_descent(self, mini_batch, learning_rate):
+        """Update the network's weights and biases by applying
+        gradient descent using backpropagation to a single mini batch.
+        The ``mini_batch`` is a list of tuples ``(x, y)``, and ``eta``
+        is the learning rate."""
+        mini_batch_bias_gradients = [np.zeros(b.shape) for b in self.biases]
+        mini_batch_weights_gradients = [np.zeros(w.shape) for w in self.weights]
         for x, y in mini_batch:
             bias_gradient_x, weights_gradient_x = self.__back_propagation(x, y)
             mini_batch_bias_gradients = [existing_bias_total + x_train_bias
@@ -25,10 +50,10 @@ class Network:
                                             for existing_weight_total, x_train_weights
                                             in zip(mini_batch_weights_gradients, weights_gradient_x)]
         # apply gradient descent result of this mini-batch to the biases and weights
-        self.biases = [bias - ((self.learning_rate / len(mini_batch)) * bias_gradient)
+        self.biases = [bias - ((learning_rate / len(mini_batch)) * bias_gradient)
                        for bias, bias_gradient
                        in zip(self.biases, mini_batch_bias_gradients)]
-        self.weights = [weights - ((self.learning_rate / len(mini_batch)) * weights_gradient)
+        self.weights = [weights - ((learning_rate / len(mini_batch)) * weights_gradient)
                         for weights, weights_gradient
                         in zip(self.weights, mini_batch_weights_gradients)]
 
@@ -73,7 +98,7 @@ class Network:
 
         # step 2: back-propagation
         # for last layer
-        cost_derivative = self.__cost_derivative(y_train, activation)
+        cost_derivative = self.__cost_derivative(activations[-1], y_train)
         sigmoid_derivative = self.__sigmoid_derivative(zs[-1])
         change_in_bias = cost_derivative * sigmoid_derivative
         # we have weights for this layer 2-dim matrix --> "len(change_in_bias) X len(a[l-1])"
@@ -88,7 +113,7 @@ class Network:
         for l in xrange(2, self.layers):
             # change in cost for change a[l-1] for first time and continues to a[l-2]....
             # weight of next layer is taken transpose because we are back-propagating
-            error_this_layer = np.dot(self.biases[-l + 1].transpose(), change_in_bias)
+            error_this_layer = np.dot(self.weights[-l + 1].transpose(), change_in_bias)
             # this layer changes
             sigmoid_derivative = self.__sigmoid_derivative(zs[-l])
             change_in_bias = error_this_layer * sigmoid_derivative
@@ -98,19 +123,32 @@ class Network:
             weight_gradients[-l] = change_in_weight
         return bias_gradients, weight_gradients
 
+    def __cost_derivative(self, output_activations, y):
+        """Return the vector of partial derivatives \partial C_x /
+        \partial a for the output activations."""
+        return output_activations - y
+
+    def __sigmoid_derivative(self, z):
+        """Derivative of the sigmoid function."""
+        return self.__sigmoid(z) * (1 - self.__sigmoid(z))
+
+    def feed_forward(self, a):
+        """Return the output of the network if ``a`` is input."""
+        for b, w in zip(self.biases, self.weights):
+            a = self.__sigmoid(np.dot(w, a) + b)
+        return a
+
+    def evaluate(self, test_data):
+
+        """Return the number of test inputs for which the neural
+        network outputs the correct result. Note that the neural
+        network's output is assumed to be the index of whichever
+        neuron in the final layer has the highest activation."""
+        test_results = [(np.argmax(self.feed_forward(x)), y)
+                        for (x, y) in test_data]
+        return sum(int(x == y) for (x, y) in test_results)
+
     @staticmethod
-    def __cost_derivative(expected_vector, predicted_vector):
-        return predicted_vector - expected_vector
-
-    def __sigmoid_derivative(self, zl):
-        return self.__sigmoid(zl) * (1 - self.__sigmoid(zl))
-
-    def evaluate(self, activations):
-        for layer_weights, layer_biases in zip(self.weights, self.biases):
-            zl = np.dot(layer_weights, activations) + layer_biases
-            activations = self.__sigmoid(zl)
-        return activations
-
-    @staticmethod
-    def __sigmoid(zl_activations):
-        return 1 / (1 - math.exp(-zl_activations))
+    def __sigmoid(z):
+        """The sigmoid function."""
+        return 1.0 / (1.0 + np.exp(-z))

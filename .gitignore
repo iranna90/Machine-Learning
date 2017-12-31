@@ -1,3 +1,6 @@
 *.iml
 **.iml
 .idea
+*.gz
+*check.py
+**.pyc
